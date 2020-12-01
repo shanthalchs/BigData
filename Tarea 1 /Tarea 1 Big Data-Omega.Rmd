@@ -1,0 +1,76 @@
+---
+title: "Tarea 1 - Big Data"
+author: "Shanthal Chavarría"
+date: "`r Sys.Date()`"
+output:
+  html_document: 
+    df_print: paged 
+    highlight: kate
+    toc: TRUE
+    toc_float: TRUE
+---
+
+
+```{r setup, echo=FALSE, cache=FALSE}
+library(knitr)
+library(rmdformats)
+
+## Global options
+options(max.print="75")
+opts_chunk$set(echo=FALSE,
+	             cache=TRUE,
+               prompt=FALSE,
+               tidy=TRUE,
+               comment=NA,
+               message=FALSE,
+               warning=FALSE)
+opts_knit$set(width=75)
+```
+
+# 1. [25 puntos] Utilizando las funciones del archivo funciones.R disponible en el aula virtual realice lo siguiente.
+
+## a) Analice una a una las funciones del archivo e identifique factores que puedan aumentar su tiempo de ejecución.
+
+```{r}
+library(dtplyr)
+# Numeros primos
+es_primo <- function(x){
+  divisores <- 2:ceiling(sqrt(x))
+  for (i in seq_along(divisores)) {
+    if(x %% divisores[i] == 0) {
+      return(FALSE)
+    }
+  }
+  return(TRUE)
+}
+
+# Precision global
+precision_global <- function(real, ref) {
+  contador <- 0
+  for (i in seq_along(real)) {
+    if(real[i] == ref[i]) {
+      contador  <- contador + 1
+    }
+  }
+  
+  resultado <- contador / length(real)
+  return(resultado)
+}
+
+# Detectar na en data.frame
+tiene_na <- function(x){
+  for (i in 1:nrow(x)) {
+    for (j in 1:ncol(x)) {
+      if(is.na(x[i,j])){
+        return(TRUE)
+      }
+    }
+  }
+  
+  return(FALSE)
+}
+```
+
+b) Cree una versión alternativa a cada una de las funciones en la que aplique los cambios que considere necesarios y explique cada uno de ellos.
+
+c) Utilizando la función mark del paquete bench compare el rendimiento de las funciones originales con su versión modificada.
