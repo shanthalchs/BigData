@@ -1,0 +1,13 @@
+base
+knitr
+rmdformats
+readr
+traineR
+lattice
+ggplot2
+caret
+purrr
+snow
+FactoMineR
+factoextra
+h2o

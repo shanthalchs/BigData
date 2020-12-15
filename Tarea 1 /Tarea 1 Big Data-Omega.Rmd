@@ -17,7 +17,7 @@ library(rmdformats)
 
 ## Global options
 options(max.print="75")
-opts_chunk$set(echo=FALSE,
+opts_chunk$set(echo=TRUE,
 	             cache=TRUE,
                prompt=FALSE,
                tidy=TRUE,
@@ -43,6 +43,11 @@ es_primo <- function(x){
   }
   return(TRUE)
 }
+```
+Aumenta su tiempo debido al loop que recorre una a uno los indices de x.
+
+
+```{r}
 
 # Precision global
 precision_global <- function(real, ref) {
@@ -56,6 +61,12 @@ precision_global <- function(real, ref) {
   resultado <- contador / length(real)
   return(resultado)
 }
+
+```
+
+Crea un loop que recorre ambos vectores y agrega en iteración un valor adicional por lo que se reemplaza el antiguo vector por uno nuevo encareciendo la eficacia de la función. 
+
+```{r}
 
 # Detectar na en data.frame
 tiene_na <- function(x){
@@ -71,6 +82,261 @@ tiene_na <- function(x){
 }
 ```
 
-b) Cree una versión alternativa a cada una de las funciones en la que aplique los cambios que considere necesarios y explique cada uno de ellos.
+Son dos for anidados que van verificando por fila cada entrada si es NA. Esto no debería ser necesario ya que R es vectorial y  no hay necesidad de dos loops.
 
-c) Utilizando la función mark del paquete bench compare el rendimiento de las funciones originales con su versión modificada.
+
+## b) Cree una versión alternativa a cada una de las funciones en la que aplique los cambios que considere necesarios y explique cada uno de ellos.
+
+```{r}
+es_primo1 <- function(x){
+  
+  divisores <- 2:ceiling(sqrt(x)) 
+  all(x%%divisores != 0) 
+  
+}
+es_primo1(8)
+es_primo1(7)
+```
+
+Elimino el loop y verifico que si hay un divisor algún divisor entero me de FALSE.
+
+```{r}
+
+precision_global1 <- function(real,ref){
+  contador <- sum(ref==real, na.rm = TRUE)
+  
+  resultado <- contador/length(real)
+  return(resultado)
+}
+
+
+```
+ELimino el loop, despues cuento en cuantos indices se parecen ambos vectores inmediatamente sin necesidad de remplazarlo como en la otra función. Finalmente lo divido entre el total de entradas.
+
+```{r}
+
+tiene_na1 <- function(x){
+  any(is.na(x)==TRUE)
+}
+
+color <- c("azul","blanco","rojo","verde")
+nota <- c(1,4,NA,6)
+tabla <- data.frame(color, nota)
+tabla
+
+
+tiene_na1(tabla)
+```
+Revisa si algún valor de la tabla es NA con is.na que recorre sin necesidad de for cada entrada y retorna True si existe. 
+
+## c) Utilizando la función mark del paquete bench compare el rendimiento de las funciones originales con su versión modificada.
+
+```{r}
+
+
+
+
+```
+```{r}
+
+real <- sample(0:1, 10000,T)
+ref <- sample(0:1, 10000,T)
+
+mark(
+  "ciclo for" = precision_global(real, ref),
+  "vectorizado" = precision_global1(real, ref),
+  relative = T)
+```
+
+
+```{r}
+mark(
+  "ciclo for" = tiene_na(iris),
+  "vectorizado" = tiene_na1(iris),
+  relative = T)
+
+```
+
+# 2. [35 puntos] Utilizando como guia el código visto en clase diseñe un script que permita aplicar LOOCV (validación cruzada dejando uno fuerza) para un modelo de bosques aleatorios con sus parámetros por defecto, en esta debe aplicar los conceptos de programación vistos en la clase, así como señalar los puntos en donde considera fue oportuno utilizarlos, debe adjuntar una demostración del funcionamiento de su código así como la tabla de datos que haya utilizado.
+
+```{r}
+library(purrr)
+library(randomForest)
+datos <- iris
+
+n <- dim(datos)[1]
+
+
+  muestra <-  1:n #Vector del número de filas
+  
+  errores <- map_lgl(muestra, function (x, datos){ #usando esta función en lugar de una lista tendremos un vector booleano
+    
+    ttesting <- datos[x,] #fila de prueba
+    taprendizaje <- datos[-x,] #tabla menos la fila
+    
+  modelo <- randomForest(Species~.,
+               data = taprendizaje) #modelo de bosques con toda la tabla menos la fila
+  
+   prediccion <- predict(modelo, ttesting) #prediccion 
+   
+   prediccion!=ttesting$Species # si la fila es igual devuelve TRUE 
+  
+}, datos = iris)
+  
+#sumo todos los fallos, ya que mean interpreta 1s y 0s
+  errores <- mean(errores)
+  
+  
+ errores
+
+
+```
+
+
+# 3. [20 puntos] En este ejercicio empleamos la tabla CensusIncome que contiene información de individuos residentes en Estados Unidos. Entre la información contenida se encuentra la edad, educación, ocupación, género, horas laboradas a la semana y país nativo..
+
+```{r}
+library(readr)
+
+datos <- read.table("Datos_Tarea/CensusIncome.csv", sep = ",", header = T)
+```
+
+
+Con estos datos efectue lo siguiente:
+
+## a) Usando el paquete dplyr cree un resumen que contenga el mínimo, máximo, mediana, media y desviación estandar de la horas laboradas a la semana, esto agrupando los datos por sexo, raza y nivel educativo.
+
+```{r}
+library(dplyr)
+
+datos%>%
+  group_by(race,sex, education)%>%
+  summarise(Minimo = min(hours.per.week),
+            Maximo = max(hours.per.week),
+            Promedio = mean(hours.per.week),
+            Mediana = median(hours.per.week),
+            Desv_Estand = sd(hours.per.week))
+```
+
+## b) Repita el ejercicio anterior utilizando el paquete dtplyr.
+
+```{r}
+library(dtplyr)
+
+#cambio de tipo de datos
+
+datos_dt <- lazy_dt(datos)
+
+datos_dt %>%
+  group_by(race,sex, education)%>%
+  summarise(Minimo = min(hours.per.week),
+            Maximo = max(hours.per.week),
+            Promedio = mean(hours.per.week),
+            Mediana = median(hours.per.week),
+            Desv_Estand = sd(hours.per.week))
+```
+
+## c) Utilizando la función mark del paquete bench evalue el rendimiento de ambos paquetes.
+
+```{r}
+mark("data.table" = {
+datos_dt %>%
+  group_by(race,sex, education)%>%
+  summarise(Minimo = min(hours.per.week),
+            Maximo = max(hours.per.week),
+            Promedio = mean(hours.per.week),
+            Mediana = median(hours.per.week),
+            Desv_Estand = sd(hours.per.week)) %>% 
+  as_tibble()
+},
+"dplyr" = {
+datos%>%
+  group_by(race,sex, education)%>%
+  summarise(Minimo = min(hours.per.week),
+            Maximo = max(hours.per.week),
+            Promedio = mean(hours.per.week),
+            Mediana = median(hours.per.week),
+            Desv_Estand = sd(hours.per.week))
+}, check = F)
+```
+
+# 4. [20 puntos] Para este ejercicio vamos a hacer uso de la tabla de datos Creditcard, la cual contiene información de las transacciones de los clientes en la cartera de crédito del banco. Por temas de confidencialidad el banco no nos proporciona las variables originales ni nos brinda información detallada de los datos, sino que pone a disposición una tabla donde la mayoría de las columnas son transformaciones de las variables originales, esto con el fin de proteger la información sensible.
+
+La tabla de datos contiene 284 807 transacciones y 31 columnas que las describen. Seguidamente se explican las variables que conforman la tabla.
+
+
+```{r}
+datos <- read.table("Datos_Tarea/creditcard.csv", sep = ",", dec = ".", header = T)
+```
+
+Luego efectue lo siguiente:
+
+## a) Utilizando un ciclo for realice un resumen que contenga la media de las variables V1 a V28, esto agrupado por la variable Class y presente los resultados en un data.frame.
+
+```{r}
+n<- dim(datos)[1]
+
+num.1 <- count(datos , Class == 1)[2,2]
+num.0 <- count(datos , Class == 1)[1,2]
+
+
+#lista que tendran la media para cada variable segun la clase
+
+medias.1 <- 0
+medias.0 <- 0
+
+for(i in 1:n){
+  if(datos$Class[i] == 1){
+    
+    medias.1 <- medias.1 + datos[2:29][i,]
+      
+  }
+  else{
+    medias.0 <- medias.0 + datos[2:29][i,]
+  }
+    
+  }
+
+medias.1/num.1
+medias.0/num.0
+
+```
+
+## b) Utilizando el paquete dplyr realice un resumen que contenga la media de las variables V1 a V28, esto agrupado por la variable Class.
+
+```{r}
+datos[-c(1,30)]%>%
+  group_by(Class)%>%
+  summarise_each(funs(mean))
+
+```
+
+## c) Repita el ejercicio anteriores utilizando el paquete dtplyr.
+
+```{r}
+
+datos_dt <- lazy_dt(datos[-c(1,30)])
+
+datos_dt%>%
+  group_by(Class)%>%
+  summarise_each(funs(mean))
+
+```
+
+## d) Utilizando la función mark del paquete bench evalue el rendimiento de ambos paquetes.
+
+```{r}
+
+mark("data.table" = {
+datos_dt %>%
+  group_by(Class)%>%
+  summarise_each(funs(mean)) %>% 
+  as_tibble()
+},
+"dplyr" = {
+datos[-c(1,30)]%>%
+  group_by(Class)%>%
+  summarise_each(funs(mean))
+}, check = F)
+```
+

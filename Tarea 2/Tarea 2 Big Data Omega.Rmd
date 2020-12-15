@@ -1,0 +1,292 @@
+---
+title: "Tarea 2 - Big Data"
+author: "Shanthal Chavarría"
+date: "`r Sys.Date()`"
+output:
+  html_document: 
+    df_print: paged 
+    highlight: kate
+    toc: TRUE
+    toc_float: TRUE
+---
+
+
+```{r setup, echo=FALSE, cache=FALSE}
+library(knitr)
+library(rmdformats)
+
+## Global options
+options(max.print="75")
+opts_chunk$set(echo=TRUE,
+	             cache=TRUE,
+               prompt=FALSE,
+               tidy=TRUE,
+               comment=NA,
+               message=FALSE,
+               warning=FALSE)
+opts_knit$set(width=75)
+```
+
+# 1. [30 puntos] Usando la tabla de datos ChurnTelecom6k.csv realice lo siguiente:
+
+```{r}
+library(readr)
+
+datos <- read.table("Datos Tarea/ChurnTelecom6K.csv", sep = ",", dec = ".", header = TRUE, stringsAsFactors = TRUE )
+
+
+```
+
+## a) Utilizando la función lapply cree para el modelo de bosques aleatorios, con sus parámetros por defecto, una validación cruzada k-folds usando 10 grupos (sin repeticiones).
+
+```{r cache=TRUE}
+library(traineR)
+library(caret)
+library(purrr)
+
+version.lapply <- function(datos){
+n <- dim(datos)[1]
+
+grupos <- createFolds(1:n,10)
+
+ 
+resultados <- lapply(grupos, function(muestra){
+  
+  ttesting <- datos[muestra,]
+  taprendizaje <- datos[-muestra,]
+  
+  modelo <- train.randomForest( Churn~.,
+                                taprendizaje)
+  
+  prediccion <- predict(modelo,ttesting)
+  
+  MC <- confusion.matrix(ttesting, prediccion)
+  
+  1 - sum(diag(MC))/sum(MC)
+}
+  )
+
+resultados
+
+return(reduce(resultados, sum)/10)
+
+}
+
+version.lapply(datos)
+```
+
+## b) Utilizando el paquete snow y la función clusterApply, adapte su código anterior para que este se ejecute en paralelo.
+
+```{r cache=TRUE}
+library(snow)
+
+# Creación de los nodos
+version.snow <- function(datos){
+  
+  peones <- parallel::detectCores()
+clp <- makeCluster(peones, type = "SOCK")
+
+# Constructor del cluster
+ignore <- clusterExport(clp, "datos")
+
+
+numero.filas <- nrow(datos)
+cantidad.grupos <- 10
+
+grupos <- createFolds(1:numero.filas, cantidad.grupos)  # Crea los 10 grupos
+
+
+
+    
+    resultado <- clusterApply(clp, grupos, function(muestra) {
+      
+      library(traineR)
+      
+      ttesting <- datos[muestra,]
+      taprendizaje <- datos[-muestra,]
+  
+      modelo <- train.randomForest( Churn~.,
+                                taprendizaje)
+      
+      prediccion <- predict(modelo,ttesting)
+      
+      MC <- confusion.matrix(ttesting, prediccion)
+      
+     # Cálculo del ERROR
+      error <- (1-(sum(diag(MC)))/sum(MC))*100
+      
+      
+    })
+  resultado
+
+  return(reduce(resultado, sum)/10)
+}
+
+version.snow(datos)
+```
+
+## c) Usando la función mark del paquete bench compare el rendimiento de ambas versiones, en este caso utilizando el parámetro iterations = 2.
+
+```{rcache=TRUE}
+library(bench)
+mark("sequencial" = version.lapply(datos),
+     
+     "paralelo" = version.snow(datos), iterations = 2, relative = T, check = F)
+```
+
+#2. [40 puntos] Para este ejercicio vamos a usar la tabla de datos PostUpvotes.csv, la cual contiene información de posts publicados en una red social. Esta tabla de datos contiene 6000 posts y 4 variables numéricas que los describen.
+```{r}
+datos <- read.table("Datos Tarea/PostUpvotes.csv", sep = ";", dec = ".", header = TRUE, stringsAsFactors = TRUE )
+```
+
+Realice lo siguiente:
+
+## a) Usando lapply y la función hclust construya una función que reciba una tabla de datos y retorne una lista con 8 dendrogramas con los métodos ward.D, ward.D2, single, complete, average, mcquitty, median y centroid, luego gráfique los cada uno de los dendrogramas.
+
+```{r}
+library("FactoMineR") 
+library("factoextra")
+
+metodos <- c( "ward.D", "ward.D2", "single", "complete", "average", "mcquitty", "median", "centroid")
+
+version.lapply <- function(datos){
+  dendogramas <- lapply(metodos, function(metodo){
+  
+  modelo <- hclust(dist(datos),method = metodo)
+  
+  plot(modelo)
+})
+}
+
+version.lapply(datos)
+
+```
+
+## b) Usando clusterApply del paquete snow paralelice el proceso anterior, utilizando el paquete bench compare el tiempo de ejecución de ambas funciones.
+
+```{r}
+# Creación de los nodos
+version.snow <- function(datos){
+  
+peones <- parallel::detectCores()
+clp <- makeCluster(peones, type = "SOCK")
+
+# Constructor del cluster
+ignore <- clusterExport(clp, "datos")
+
+metodos <- c( "ward.D", "ward.D2", "single", "complete", "average", "mcquitty", "median", "centroid")
+
+    
+    resultado <- clusterApply(clp, metodos, function(metodo) {
+      
+      library("FactoMineR") 
+      library("factoextra")
+      
+      modelo <- hclust(dist(datos),method = metodo)
+  
+      
+    })
+   
+
+  return(resultado)
+}
+
+
+modelos <- version.snow(datos)
+
+for(i in modelos){
+  plot(i)
+}
+```
+
+## c) Desarrolle una función que reciba un data.frame y una variable que contenga a que grupo pertenece cada individuo y retorna la inercia intra-clase, puede usar como referencia el archivo de excel EjemploEstudiantesKmeans.xls.
+
+```{r}
+
+inercia.intra.clase <- function(datos,grupos){
+    
+    cantidad <- dim(datos)[1]
+    tabla <- cbind(datos,grupos)
+    
+    centros <- lapply(1:length(unique(grupos)), function(i){
+      apply(tabla[tabla$grupos == i,], 2, mean)
+    })
+    
+    inercias <- sapply(1:length(centros), function(i){
+      #sum((tabla[tabla$grupos == i,]- centros[[i]])^2)
+      
+      suma <- 0
+      
+      for (j in 1:(ncol(tabla)-1)) {
+         suma <- suma + sum((tabla[tabla$grupos == i,j]- centros[[i]][j])^2)
+      }
+      suma
+    })
+    
+    return(sum(inercias))
+}
+
+
+
+```
+
+## d) Usando el criterio de la Inercia Intra-Clases y usando 2 clústeres determine cuál de los 8 métodos es mejor, se entiende como el mejor aquel cluster con la menor Inercia Intra-Clases.
+
+```{r}
+
+
+grupos <- lapply(modelos, cutree, k =2)
+  
+grupos
+
+inercias <- sapply(grupos, inercia.intra.clase, datos = datos)
+
+names(inercias) <- metodos
+
+inercias[inercias == min(inercias)]
+```
+
+# 3. [30 puntos] El paquete H2O es un motor para Big Data, el cual ejecuta de manera distribuida modelos de Data Mining tales como: modelos lineales generalizados, bosques aleatorios, redes neuronales, entre otros, en varios tipo de clústeres de computadoras.
+
+Luego realice lo siguiente para los datos ChurnTelecom6K.csv:
+
+```{r}
+library(h2o)
+h2o.no_progress()
+h2o.init() 
+datos <- h2o.uploadFile("Datos Tarea/ChurnTelecom6K.csv", sep = ",", dec = ".", header = TRUE)
+
+```
+
+## a) Utilizando el método de bosques aleatorios de H2O entrene un modelo para predecir la variable Churn.
+
+```{r}
+muestras <- h2o.splitFrame(data = datos, ratios = 0.75)
+
+aprendizaje <- muestras[[1]]
+prueba <- muestras[[2]]
+
+modelo <- h2o.randomForest(y = "Churn", 
+                         training_frame = aprendizaje,
+                         nfolds = 5,
+                         ntrees = 10,
+                         max_depth = 2)
+
+prediccion <- h2o.predict(modelo, prueba)
+```
+
+## b) Construya la matriz de confusión y calcule la precisión global y por clase.
+
+```{r}
+library(traineR)
+
+real <- as.vector(prueba[,"Churn"])
+ref <- as.vector(prediccion[,1])
+mc <- table(real, ref)
+
+general.indexes(mc = mc)
+```
+
+## c) ¿Qué se puede decir respecto a los tiempos de ejecución comparando el paquete HO2 con el paquete randomForest?
+
+
