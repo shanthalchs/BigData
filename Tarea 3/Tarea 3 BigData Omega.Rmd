@@ -69,6 +69,7 @@ library(readr)
 
 datos <- read.table("Datos Tarea/tumores.csv", header = T, sep = ",", dec = ".", stringsAsFactors = T)[,-1]
 
+datos$tipo <- as_factor(datos$tipo)
 
 ```
 
@@ -225,6 +226,8 @@ library(caret)
 peones <- parallel::detectCores()
 clp <- makeCluster(peones, type = "SOCK")
 
+
+
 ejecutar.prediccion <- function(datos, formula, muestra, metodo, ...) {
   ttesting <- datos[muestra, ]
   ttraining <- datos[-muestra, ]
@@ -233,8 +236,9 @@ ejecutar.prediccion <- function(datos, formula, muestra, metodo, ...) {
   prediccion <- predict(modelo, ttesting, type = "class")
   
   MC <- confusion.matrix(ttesting, prediccion)
-  return(MC)
+  return(MC) #retorna la matriz de confusión
 }
+
 
 clusterExport(clp, "datos")   
 
@@ -250,6 +254,8 @@ ignore <- clusterEvalQ(clp, {
       }
       return(NULL)
 })
+
+
 
 ```
 
@@ -305,6 +311,8 @@ for(i in 1:cantidad.validacion.cruzada) {
       valores
     })
     
+    
+    
     for (j in 1:length(algoritmos)) {
       if (resultado[[j]][[1]] == "rectangular") 
          MC.rectangular <- MC.rectangular + resultado[[j]][[2]] 
@@ -327,6 +335,8 @@ for(i in 1:cantidad.validacion.cruzada) {
       
     }
   }
+  
+  
       
   MCs.rectangular[[i]] <- MC.rectangular
   MCs.triangular[[i]] <- MC.triangular
@@ -546,16 +556,16 @@ No es muy claro pero me aparece en el gráfico que el método de `redes-nnet` ti
 ```{r, fig.width=12,fig.height=6}
 resultado.global <- data.frame(
   "rep" = 1:cantidad.validacion.cruzada,
-  "svm" = sapply(MCs.svm, precision.global)*100,
-  "k_vecinos" = sapply(MCs.knn, precision.global)*100,
-  "bayes" = sapply(MCs.bayes, precision.global)*100,
-  "arboles" = sapply(MCs.arbol, precision.global)*100,
-  "bosques" = sapply(MCs.bosque, precision.global)*100,
-  "potenciacion" = sapply(MCs.potenciacion,precision.global)*100,
-  "redes_nnet" = sapply(MCs.red, precision.global)*100,
-  "xgboost" = sapply(MCs.xgboost, precision.global)*100,
-  "redes_neuralnet" = sapply(MCs.red.neu, precision.global)*100,
-  "regresion_logistica" = sapply(MCs.glm, precision.global)*100
+  "svm" = 1 - sapply(MCs.svm, precision.global)*100,
+  "k_vecinos" = 1 - sapply(MCs.knn, precision.global)*100,
+  "bayes" = 1 - sapply(MCs.bayes, precision.global)*100,
+  "arboles" = 1 - sapply(MCs.arbol, precision.global)*100,
+  "bosques" = 1 - sapply(MCs.bosque, precision.global)*100,
+  "potenciacion" = 1- sapply(MCs.potenciacion,precision.global)*100,
+  "redes_nnet" = 1 - sapply(MCs.red, precision.global)*100,
+  "xgboost" = 1 - sapply(MCs.xgboost, precision.global)*100,
+  "redes_neuralnet" = 1- sapply(MCs.red.neu, precision.global)*100,
+  "regresion_logistica" = 1-  sapply(MCs.glm, precision.global)*100
   )
 
 resumen.lineas(resultado.global, "Promedio Global")
