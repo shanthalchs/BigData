@@ -1,0 +1,345 @@
+---
+title: "Tarea 2  Big Data-Sigma"
+author: "Shanthal Chavarría"
+date: "`r Sys.Date()`"
+output:
+  html_document: 
+    df_print: paged 
+    highlight: kate
+    toc: TRUE
+    toc_float: TRUE
+---
+
+
+```{r setup, echo=FALSE, cache=FALSE}
+library(knitr)
+library(rmdformats)
+
+## Global options
+options(max.print="75")
+opts_chunk$set(echo=TRUE,
+	             cache=TRUE,
+               prompt=FALSE,
+               tidy=TRUE,
+               comment=NA,
+               message=FALSE,
+               warning=FALSE)
+opts_knit$set(width=75)
+```
+
+# 1. __[30 puntos]__ Usando la tabla de datos `ChurnTelecom6k.csv` realice lo siguiente:
+
+```{r}
+library(readr)
+
+datos <- read.table("Datos Tarea/ChurnTelecom6K.csv", sep = ",", dec = ".", header = TRUE, stringsAsFactors = TRUE )
+
+
+```
+
+## a) Utilizando la función `lapply` cree para el modelo de árboles, con sus parámetros por defecto, una validación cruzada k-folds usando 10 grupos (sin repeticiones).
+
+```{r cache=TRUE}
+library(traineR)
+library(caret)
+library(purrr)
+
+version.lapply <- function(datos){
+n <- dim(datos)[1]
+
+grupos <- createFolds(1:n,10)
+
+ 
+resultados <- lapply(grupos, function(muestra){
+  
+  ttesting <- datos[muestra,]
+  taprendizaje <- datos[-muestra,]
+  
+  modelo <- train.rpart( Churn~.,
+                                taprendizaje)
+  
+  prediccion <- predict(modelo,ttesting)
+  
+  MC <- confusion.matrix(ttesting, prediccion)
+  
+  error <- (1 - sum(diag(MC))/sum(MC)) * 100
+}
+  )
+
+resultados
+
+return(reduce(resultados, sum)/10)
+
+}
+
+version.lapply(datos)
+```
+
+
+## b) Utilizando el paquete `snow` y la función `clusterApply`, adapte su código anterior para que este se ejecute en paralelo.
+
+```{r cache=TRUE}
+library(snow)
+
+# Creación de los nodos
+version.snow <- function(datos){
+  
+  peones <- parallel::detectCores()
+clp <- makeCluster(peones, type = "SOCK")
+
+# Constructor del cluster
+ignore <- clusterExport(clp, "datos")
+
+
+numero.filas <- nrow(datos)
+cantidad.grupos <- 10
+
+grupos <- createFolds(1:numero.filas, cantidad.grupos)  # Crea los 10 grupos
+
+
+
+    
+    resultado <- clusterApply(clp, grupos, function(muestra) {
+      
+      library(traineR)
+      
+      ttesting <- datos[muestra,]
+      taprendizaje <- datos[-muestra,]
+  
+      modelo <- train.rpart( Churn~.,
+                                taprendizaje)
+      
+      prediccion <- predict(modelo,ttesting)
+      
+      MC <- confusion.matrix(ttesting, prediccion)
+      
+     # Cálculo del ERROR
+      error <- (1-(sum(diag(MC)))/sum(MC))*100
+      
+      
+    })
+  resultado
+
+  return(reduce(resultado, sum)/10)
+}
+
+version.snow(datos)
+```
+
+## c) Usando la función `mark` del paquete `bench` compare el rendimiento de ambas versiones, en este caso utilizando el parámetro `iterations = 2`.
+
+```{r tiempos, cache=TRUE}
+library(bench)
+
+mark("sequencial" = version.lapply(datos),
+     
+     "paralelo" = version.snow(datos), iterations = 2, relative = T, check = F)
+```
+
+# 2. __[40 puntos]__ Para este ejercicio vamos a usar la tabla de datos `PostUpvotes.csv`, la cual contiene información de posts publicados en una red social. Esta tabla de datos contiene 6000 posts y 4 variables numéricas que los describen.
+
+```{r}
+datos <- read.table("Datos Tarea/PostUpvotes.csv", sep = ";", dec = ".", header = TRUE, stringsAsFactors = TRUE )
+```
+
+Realice lo siguiente:
+
+## a) Usando `clusterApply` y la función `hclust` construya una función que reciba una tabla de datos y retorne una lista con 8 dendrogramas con los métodos `ward.D`, `ward.D2`, `single`, `complete`, `average`, `mcquitty`, `median` y `centroid`, luego gráfique los cada uno de los dendrogramas.
+
+```{r}
+library("FactoMineR") 
+library("factoextra")
+
+metodos <- c( "ward.D", "ward.D2", "single", "complete", "average", "mcquitty", "median", "centroid")
+
+# Creación de los nodos
+version.snow <- function(datos){
+  
+peones <- parallel::detectCores()
+clp <- makeCluster(peones, type = "SOCK")
+
+# Constructor del cluster
+ignore <- clusterExport(clp, "datos")
+
+metodos <- c( "ward.D", "ward.D2", "single", "complete", "average", "mcquitty", "median", "centroid")
+
+    
+    resultado <- clusterApply(clp, metodos, function(metodo) {
+      
+      library("FactoMineR") 
+      library("factoextra")
+      
+      modelo <- hclust(dist(datos),method = metodo)
+  
+      
+    })
+   
+
+  return(resultado)
+}
+
+
+modelos <- version.snow(datos)
+
+
+for(i in modelos){
+  plot(i)
+}
+```
+
+## b) Desarrolle una función que reciba un `data.frame` y una variable que contenga a que grupo pertenece cada individuo y retorna la inercia intra-clase, puede usar como referencia el archivo de excel `EjemploEstudiantesKmeans.xls`. 
+
+```{r}
+library(readxl)
+
+
+inercia.intra.clase <- function(datos,grupos){
+    
+    #numero de filas  
+    cantidad <- dim(datos)[1]
+    # uno los datos con los grupos ya calculados
+    tabla <- cbind(datos,grupos)
+    
+    #calculo los centros, estoy calculando la media según el cluster en el que se encuentra la fila
+    
+    centros <- lapply(1:length(unique(grupos)), function(i){
+      apply(tabla[tabla[,ncol(tabla)] == i,], 2, mean)
+    })
+    
+    
+    # ahora para las inercias, para cada centro i, 
+    
+    inercias <- sapply(1:length(centros), function(i){
+      
+      suma <- 0
+     
+    # Recorro las columnas de la tabla, verifico que son del 
+      #centro elevando al cuadrado como en la tabla de excel
+      # y los voy sumando todos 
+      for (j in 1:(ncol(tabla)-1)) {
+         suma <- suma + sum((tabla[tabla[,ncol(tabla)] == i,j]- centros[[i]][j])^2)
+      }
+      suma
+    })
+    
+    #después divido entre la cantidad de fila
+    return(sum(inercias)/cantidad)
+}
+
+
+
+
+```
+
+## d) Usando el criterio de la __Inercia Intra-Clases__ y __usando 2 clústeres__ determine cuál de los 8 métodos es mejor, se entiende como el mejor aquel cluster con la menor __Inercia Intra-Clases__.
+
+```{r}
+
+
+grupos <- lapply(modelos, cutree, k =2)
+  
+grupos
+
+inercias <- sapply(grupos, inercia.intra.clase, datos = datos)
+
+names(inercias) <- metodos
+
+inercias 
+
+inercias[inercias == min(inercias)]
+
+inercias
+```
+
+# 3. Usando nuevamente la tabla de datos `ChurnTelecom6k.csv` realice lo siguiente:
+
+```{r}
+datos <- read.table("Datos Tarea/ChurnTelecom6K.csv", sep = ",", dec = ".", header = TRUE, stringsAsFactors = TRUE )
+
+```
+
+
+## a) Realice la predicción para la variable `Churn` utilizando los métodos de `bosques aleatorios, XGBoost` y `Redes Neuronales` de H2O.
+
+```{r}
+library(h2o)
+library(traineR)
+
+h2o.init()
+datos <- h2o.importFile(path = "Datos Tarea/ChurnTelecom6K.csv" )
+
+#partición de los datos
+muestras <- h2o.splitFrame(data = datos, ratios = 0.75)
+
+aprendizaje <- muestras[[1]]
+prueba <- muestras[[2]]
+
+```
+
+### Bosques aleatorios
+
+```{r}
+modelo <- h2o.randomForest(y = "Churn", 
+                         training_frame = aprendizaje,
+                         nfolds = 5,
+                         ntrees = 10,
+                         max_depth = 2)
+
+prediccion <- h2o.predict(modelo, prueba)
+
+#matriz de confusión
+
+real <- as.vector(prueba[,"Churn"])
+ref <- as.vector(prediccion[,1])
+mc <- table(real, ref)
+
+general.indexes(mc = mc)
+
+
+```
+
+### Redes Neuronales
+
+```{r}
+modelo <- h2o.deeplearning(y = "Churn", 
+                           training_frame = aprendizaje,
+                           activation = "Tanh",
+                           hidden = c(200,450,50,25))
+
+prediccion <- predict(modelo, prueba)
+
+real <- as.vector(prueba[,"Churn"])
+ref <- as.vector(prediccion[,1])
+mc <- table(real, ref)
+
+general.indexes(mc = mc)
+```
+
+### XGBoost
+
+```{r}
+modelo <- h2o.xgboost(y = "Churn",
+                      training_frame = aprendizaje,
+                      ntrees = 400,
+                      learn_rate = 0.1,
+                      max_depth = 2,
+                      booster = "gbtree")
+
+prediccion <- predict(modelo, prueba)
+real <- as.vector(prueba[,"Churn"])
+ref <- as.vector(prediccion[,1])
+mc <- table(real, ref)
+
+general.indexes(mc = mc)
+
+h2o.shutdown(prompt = FALSE)
+```
+
+
+## b) Para cada uno de los modelos anteriores construya la matriz de confusión y calcule la precisión global y por clase.
+ 
+Resuelto en el punto anterior.
+
+## c) ¿Se puede determinar cuál de los modelos es el mejor? De ser así, indique cual y por qué.
+
+Según los resultados anteriores el modelo de `XGBoosting` tiene una mayor precisión y global y logra un mejor balance para la precisión del Si y del No.

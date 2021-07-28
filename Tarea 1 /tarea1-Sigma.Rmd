@@ -1,0 +1,385 @@
+---
+title: "Tarea 1 - Big Data"
+author: "Shanthal Chavarría"
+date: "`r Sys.Date()`"
+output:
+  html_document: 
+    df_print: paged 
+    highlight: kate
+    toc: TRUE
+    toc_float: TRUE
+---
+
+
+```{r setup, echo=FALSE, cache=FALSE}
+library(knitr)
+library(rmdformats)
+
+## Global options
+options(max.print="75")
+opts_chunk$set(echo=TRUE,
+	             cache=TRUE,
+               prompt=FALSE,
+               tidy=TRUE,
+               comment=NA,
+               message=FALSE,
+               warning=FALSE)
+opts_knit$set(width=75)
+```
+
+# 1. __[10 puntos]__ Con en la conferencia Desde la Estadística hasta la Ciencia de Datos, pasando porcel concepto de Big Data, cuyo vídeo está en el Aula Virtual, explique los siguientes conceptos:
+a) Computación en la Nube.
+b) “Big Data” y el significado de las 7V’s.
+c) Explique con detalle los conceptos, Minería de Datos, “Machine Lerning”, Ciencia de Datos e Ingeniería de Datos y explique cuáles son las diferencias entre dichos conceptos.
+
+# 2. __[15 puntos]__ Utilizando las funciones del archivo `funciones.R` disponible en el aula virtual realice lo siguiente.
+
+## a) Analice una a una las funciones del archivo e identifique factores que puedan aumentar su tiempo de ejecución.
+
+```{r}
+library(dtplyr)
+# Numeros primos
+es_primo <- function(x){
+  divisores <- 2:ceiling(sqrt(x))
+  for (i in seq_along(divisores)) {
+    if(x %% divisores[i] == 0) {
+      return(FALSE)
+    }
+  }
+  return(TRUE)
+}
+```
+Aumenta su tiempo debido al loop que recorre una a uno los indices de x.
+
+
+```{r}
+
+# Precision global
+precision_global <- function(real, ref) {
+  contador <- 0
+  for (i in seq_along(real)) {
+    if(real[i] == ref[i]) {
+      contador  <- contador + 1
+    }
+  }
+  
+  resultado <- contador / length(real)
+  return(resultado)
+}
+
+```
+
+Crea un loop que recorre ambos vectores y agrega en iteración un valor adicional por lo que se reemplaza el antiguo vector por uno nuevo encareciendo la eficacia de la función. 
+
+```{r}
+
+# Detectar na en data.frame
+tiene_na <- function(x){
+  for (i in 1:nrow(x)) {
+    for (j in 1:ncol(x)) {
+      if(is.na(x[i,j])){
+        return(TRUE)
+      }
+    }
+  }
+  
+  return(FALSE)
+}
+```
+
+Son dos for anidados que van verificando por fila cada entrada si es NA. Esto no debería ser necesario ya que R es vectorial y  no hay necesidad de dos loops.
+
+
+## b) Cree una versión alternativa a cada una de las funciones en la que aplique los cambios que considere necesarios y explique cada uno de ellos.
+
+
+```{r}
+es_primo1 <- function(x){
+  
+  divisores <- 2:ceiling(sqrt(x)) 
+  all(x%%divisores != 0) 
+  
+}
+es_primo1(8)
+es_primo1(7)
+```
+
+Elimino el loop y verifico que si hay un divisor algún divisor entero me de FALSE.
+
+```{r}
+
+precision_global1 <- function(real,ref){
+  contador <- sum(ref==real, na.rm = TRUE)
+  
+  resultado <- contador/length(real)
+  return(resultado)
+}
+
+
+```
+ELimino el loop, despues cuento en cuantos indices se parecen ambos vectores inmediatamente sin necesidad de remplazarlo como en la otra función. Finalmente lo divido entre el total de entradas.
+
+```{r}
+
+tiene_na1 <- function(x){
+  any(is.na(x)==TRUE)
+}
+
+color <- c("azul","blanco","rojo","verde")
+nota <- c(1,4,NA,6)
+tabla <- data.frame(color, nota)
+tabla
+
+
+tiene_na1(tabla)
+```
+
+Revisa si algún valor de la tabla es NA con is.na que recorre sin necesidad de for cada entrada y retorna True si existe. 
+
+## c) Utilizando la función `mark` del paquete `bench` compare el rendimiento de las funciones originales con su versión modificada.
+
+```{r}
+library(bench)
+
+mark(
+  "ciclo for" = es_primo(1789),
+  "vectorizado" = es_primo1(1789),
+  relative = T)
+
+```
+
+```{r}
+
+real <- sample(0:1, 10000,T)
+ref <- sample(0:1, 10000,T)
+
+mark(
+  "ciclo for" = precision_global(real, ref),
+  "vectorizado" = precision_global1(real, ref),
+  relative = T)
+```
+
+```{r}
+mark(
+  "ciclo for" = tiene_na(iris),
+  "vectorizado" = tiene_na1(iris),
+  relative = T)
+
+```
+
+# 3. [30 puntos] Diseñe un script que permita aplicar LOOCV (validación cruzada dejando uno fuerza) para un modelo de árboles con sus parámetros por defecto, en esta debe aplicar los conceptos de programación vistos en la clase, así como señalar los puntos en donde considera fue oportuno utilizarlos, debe adjuntar una demostración del funcionamiento de su código con la tabla de datos `iris`.
+
+```{r}
+library(traineR)
+datos <- read.csv("Datos_Tarea/iris.csv",sep = ";",dec='.',header=T, stringsAsFactors = T)
+## Vamos a generar el modelo dejando un dato para testing.
+v.error.loo<-rep(0,10)
+n <- dim(datos)[1]
+# Se hace 10 veces para verificar que no varía
+for(i in 1:10) { 
+  errori <- 0
+  # Este ciclo es que hace "leave one out" (dejar uno afuera)
+  for(j in 1:n) {
+    muestra <- j
+    ttesting <- datos[muestra,]
+    taprendizaje <- datos[-muestra,]
+    modelo <- train.rpart(tipo~.,data=taprendizaje)
+    prediccion <- predict(modelo,ttesting,type = "class")
+    if(prediccion$prediction != ttesting$tipo){ 
+      errori <- errori+1  
+    }
+  } 
+  v.error.loo[i] <- errori/n
+}
+
+plot(v.error.loo, col = "blue", type = "b", ylim = c(min(v.error.loo), max(v.error.loo) + 0.05), main = "Variación del Error", xlab = "Número de iteración", 
+    ylab = "Estimación del Error")
+legend("topright", legend = c("Promedio uno afuera"), col = c("blue"), lty = 1, lwd = 1)
+```
+
+
+# 4. __[20 puntos]__ En este ejercicio empleamos la tabla `CensusIncome` que contiene información de individuos residentes en Estados Unidos. Entre la información contenida se encuentra la edad, educación, ocupación, género, horas laboradas a la semana y país nativo.
+
+```{r}
+library(readr)
+
+datos <- read.table("Datos_Tarea/CensusIncome.csv", sep = ",", header = T)
+```
+
+Con estos datos efectúe lo siguiente:
+
+## a) Usando el paquete `dplyr` cree un resumen que contenga el mínimo, máximo, mediana, media y desviación estándar de la horas laboradas a la semana, esto agrupando los datos por sexo, raza y nivel educativo.
+
+```{r}
+library(dplyr)
+
+datos%>%
+  group_by(race,sex, education)%>%
+  summarise(Minimo = min(hours.per.week),
+            Maximo = max(hours.per.week),
+            Promedio = mean(hours.per.week),
+            Mediana = median(hours.per.week),
+            Desv_Estand = sd(hours.per.week))
+```
+
+## b) Repita el ejercicio anterior utilizando el paquete dtplyr.
+
+```{r}
+library(dtplyr)
+
+#cambio de tipo de datos
+
+datos_dt <- lazy_dt(datos)
+
+datos_dt %>%
+  group_by(race,sex, education)%>%
+  summarise(Minimo = min(hours.per.week),
+            Maximo = max(hours.per.week),
+            Promedio = mean(hours.per.week),
+            Mediana = median(hours.per.week),
+            Desv_Estand = sd(hours.per.week))
+```
+
+
+## c) Utilizando la función mark del paquete bench eval´ue el rendimiento de ambos paquetes
+
+```{r}
+mark("data.table" = {
+datos_dt %>%
+  group_by(race,sex, education)%>%
+  summarise(Minimo = min(hours.per.week),
+            Maximo = max(hours.per.week),
+            Promedio = mean(hours.per.week),
+            Mediana = median(hours.per.week),
+            Desv_Estand = sd(hours.per.week)) %>% 
+  as_tibble()
+},
+"dplyr" = {
+datos%>%
+  group_by(race,sex, education)%>%
+  summarise(Minimo = min(hours.per.week),
+            Maximo = max(hours.per.week),
+            Promedio = mean(hours.per.week),
+            Mediana = median(hours.per.week),
+            Desv_Estand = sd(hours.per.week))
+}, check = F)
+```
+
+
+# 5. [20 puntos] Para este ejercicio vamos a hacer uso de la tabla de datos `Creditcard`, la cual contiene información de las transacciones de los clientes en la cartera de crédito del banco. Por temas de confidencialidad el banco no nos proporciona las variables originales ni nos brinda información detallada de los datos, sino que pone a disposición una tabla donde la mayoría de las columnas son transformaciones de las variables originales, esto con el fin de proteger la información sensible.
+
+La tabla de datos contiene 284 807 transacciones y 31 columnas que las describen. Seguidamente se explican las variables que conforman la tabla.
+
++ `Time`: Cantidad de segundos transcurridos entre la primera transacción y la transacción actual.
+
++ `V1, ..., V28`: Transformaciones de las variables numéricas originales que describen cada transacción
+
++ `Amount`: Monto por el que se registra la transacción.
+
++ `Class`: Indica si la transacción corresponde a una transacción fraudulenta o no.
+
+```{r}
+datos <- read.table("Datos_Tarea/creditcard.csv", sep = ",", dec = ".", header = T)
+
+datos$Class <- as.factor(datos$Class)
+```
+
+Luego, de la forma más eficiente posible, efectue lo siguiente:
+
+## a) Calcule la media de la variable `Amount` agrupado por la variable `Class` y presente los resultados en un data.frame.
+
+```{r}
+library(dtplyr)
+library(data.table)
+library(dplyr)
+
+#convertimos a tipo dt
+datos_dt <- lazy_dt(datos)
+
+datos_dt%>%
+  group_by(Class)%>%
+  summarise_each(funs(mean))
+
+
+```
+
+
+## b) Suponga que quiere encontrar el mejor modelo para predecir la variable `Class`, para esto genere 3 Validaciones Cruzadas con 3 grupos para los métodos `Árboles`, `Regresión` y `Bayes`, puede utilizar los parámetros por defecto.
+
+```{r cache=TRUE}
+library(traineR)
+library(caret)
+
+numero.filas <- nrow(datos)
+cantidad.validacion.cruzada <- 3
+cantidad.grupos <- 3
+
+
+MCs.bayes <- matrix(c(0,0,0,0), nrow = 2)
+MCs.arbol <- matrix(c(0,0,0,0), nrow = 2)
+MCs.glm <- matrix(c(0,0,0,0), nrow = 2)
+
+
+
+
+for (i in 1:cantidad.validacion.cruzada) {
+  grupos <- createFolds(1:numero.filas, cantidad.grupos) 
+  
+  MC.bayes <- matrix(c(0,0,0,0),nrow=2)
+  MC.arbol <- matrix(c(0,0,0,0),nrow=2)
+  MC.glm <- matrix(c(0,0,0,0),nrow=2)
+  
+
+  
+  for (k in 1:cantidad.grupos) {
+    muestra <- grupos[[k]] 
+    
+    ttesting <- datos[muestra, ]
+    ttraining <- datos[-muestra, ]
+    
+    # modelos 
+    modelo <- train.bayes(Class ~ ., data = ttraining)
+    prediccion <- predict(modelo, ttesting)
+    MC <- confusion.matrix(ttesting, prediccion)
+    MC.bayes <- MC.bayes + MC
+    
+    modelo = train.rpart(Class ~ ., data = ttraining)
+    prediccion <- predict(modelo, ttesting)
+    MC <- confusion.matrix(ttesting, prediccion)
+    MC.arbol <- MC.arbol + MC
+    
+    modelo <- train.glm(Class ~ ., data = ttraining)
+    prediccion <- predict(modelo, ttesting)
+    MC <- confusion.matrix(ttesting, prediccion)
+    MC.glm <- MC.glm + MC
+    
+    
+  }
+
+  
+  
+  MCs.bayes <- MCs.bayes + MC.bayes 
+  MCs.arbol <- MCs.arbol +  MC.arbol
+  MCs.glm <- MCs.glm +  MC.glm
+ 
+}
+
+precision <- function(mc, clase){
+  
+  indices = general.indexes(mc = mc)
+  
+  return(indices)
+     
+
+}
+
+
+bayesPrecision <- precision(MCs.bayes/3)
+arbolPrecision <- precision(MCs.arbol/3)
+glmPrecision <- precision(MCs.glm/3)
+
+bayesPrecision
+arbolPrecision
+glmPrecision
+```
+c) ¿Cuál método recomendaría utilizar según los resultados obtenidos?
