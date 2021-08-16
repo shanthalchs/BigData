@@ -26,3 +26,257 @@ opts_chunk$set(echo=TRUE,
                warning=FALSE)
 opts_knit$set(width=75)
 ```
+
+
+# 1. __[20 puntos]__ Usando la tabla de datos `MuestraCredito5000.csv`, la cual contiene información de los créditos de los clientes de un banco, genere una tabla simbólica usando las variables `GradoAcademico` y `BuenPagador` como concepto, y luego realice lo siguiente:
+
+
+```{r}
+datos <- read.table("datos/MuestraCredito5000V2.csv", sep = ";", ".", header = T, stringsAsFactors = T)
+
+datos$CoefCreditoAvaluo <- as.factor(datos$CoefCreditoAvaluo)
+
+datos$IngresoNeto <- as.factor(datos$IngresoNeto)
+```
+
+
+## a) Genere una tabla simbólica usando la variable `BuenPagador` como concepto.
+
+```{r}
+library(RSDA)
+
+datos_sym <- classic.to.sym(x = datos, concept = BuenPagador)
+
+datos_sym
+```
+
+## b) Imprima y gráfique la tabla simbólica.
+
+```{r, fig.width=6, fig.height=3}
+plot(datos_sym)
+
+attr(datos_sym, "concept")
+```
+
+## c) Indique las características que definen a un buen y a un mal pagador.
+
++ __Mal pagador__ : Monto de crédito tiene un rango de [10,000.00 : 294,735.00], el IngresoNeto tiene el doble de 1 que 2, el coeficiente de crédito en su mayoría son 11 seguido de 12, el monto de cuota en su mayoría son Medio seguido de Alto y Medio Alto y en Grado Académico hay más gente con Bachiller que con Licenciatura.
+
++ __Buen Pagador__ : Monto de crédito tiene un rango de [10,000.00 : 299,082.00]],el IngresoNeto tiene más de tipo 2 que 1 pero no el doble, el coeficiente de crédito es en su mayoría 12 seguido de 11, el monto de cuota en su mayoría son Medio seguido de Medio Alto y Alto, en Grado Académico hay  gente con Bachiller y con Licenciatura en medidas casi iguales.
+
+# 2. __[40 puntos]__ La tabla `painters` del paquete `MASS` se muestra parcialmente a continuación:
+
+<center>
+![](painters.png)
+</center>
+
+En esta tabla de datos expertos evaluaron de 0 a 20 a los principales pintores de la historia en Calidad de Composición (`Composition`), Calidad de Trazo (`Drawing`), Uso del Color (`Colour`) y Expresión (`Expression`). Esta tabla también contiene una variable categórica `School` que ubica a cada uno de los pintores en sus respectivas escuelas de pintura: __A: Renaissance; B: Mannerist; C: Seicento; D: Venetian; E: Lombard; F: Sixteenth Century; G: Seventeenth Century y H: French__. Con esta tabla de datos realice lo siguiente:
+
+## a) Construya una tabla simbólica usando la variable `School` como concepto.
+
+```{r}
+library(MASS)
+data(painters)
+head(painters)
+
+painters_sym <- classic.to.sym(x = painters, concept = School)
+painters_sym
+```
+
+## b) Grafique toda la tabla resultante.
+
+```{r, fig.width=6, fig.height=6}
+
+plot(painters_sym)
+
+
+```
+
+## c) Grafique las primeras 4 filas de la tabla resultante.
+
+```{r, fig.width=6, fig.height=6}
+plot(head(painters_sym, 4))
+```
+
+## d) Para todas las variables calcule la Media Simbólica, la Mediana Simbólica, la Varianza, la Desviación Estándar Simbólicas y calcule la Correlación Simbólica entre dos pares de variables.
+
+### Media
+
+```{r}
+lapply(painters_sym, mean , method = "interval")
+```
+
+### Mediana
+
+```{r}
+lapply(painters_sym, median , method = "interval")
+```
+
+### Varianza
+
+```{r}
+lapply(painters_sym, var , method = "interval")
+```
+
+### Desviación Estándar
+
+```{r}
+lapply(painters_sym, sd , method = "interval")
+```
+
+### Correlación Simbólica
+
+```{r}
+cor(painters_sym$Drawing, painters_sym$Colour, method = "billard")
+```
+
+## e) Realice un gráfico de tipo Radar para las filas (conceptos) 3 y 4 de la tabla resultante. Interprete.
+
+```{r}
+library(ggpolypath)
+sym.radar.plot(painters_sym[c(3,4),])
+```
+
+## f) Efectúe un Análisis en Componentes Principales, interprete las agrupaciones, las correlaciones, la sobreposición de gráficos, para esto realice un ACP usando la opción `method='classic'` y luego para interpretar la variabilidad ejecute el ACP con la opción `method='centers'`.
+
+```{r, fig.width=6, fig.height=6}
+res <- sym.pca(painters_sym, "classic")
+
+plot(res, choix = "ind")
+
+plot(res, choix = "var")
+
+```
+
+```{r, fig.width=6, fig.height=6}
+res <- sym.pca(painters_sym, "centers")
+
+plot(res, choix = "ind")
+
+plot(res, choix = "var")
+
+```
+
+# 3. __[40 puntos]__ Usando la tabla de datos `accidents_2017.csv`, la cual contiene información de accidentes manejados por la policía en algunas localidades de Barcelona, seleccione 6 variables numéricas y genere una tabla simbólica usando la variable `Neighborhood.Name` como concepto, y luego realice lo siguiente:
+
+```{r}
+datos <- read.table("datos/accidents_2017.csv", sep = ",", dec=".", header = T, stringsAsFactors = T)
+
+datos_sym <- classic.to.sym(x = datos, concept = Neighborhood.Name)
+datos_sym
+
+
+#extraigo variable númericas
+
+num_datos_sym <- datos_sym[,lapply(datos_sym, is.sym.interval) == 1]
+
+
+```
+
+
+## a) Para todas las variables calcule la Media Simbólica, la Mediana Simbólica, la Varianza, la Desviación Estándar Simbólica; y calcule la Correlación Simbólica entre dos pares de variables.
+
+### Media
+
+```{r}
+lapply(num_datos_sym, mean , method = "interval")
+```
+
+### Mediana
+
+```{r}
+lapply(num_datos_sym, median , method = "interval")
+```
+
+### Varianza
+
+```{r}
+lapply(num_datos_sym, var , method = "interval")
+```
+
+### Desviación Estándar
+
+```{r}
+lapply(num_datos_sym, sd , method = "interval")
+```
+
+### Correlación Simbólica
+
+```{r}
+cor(num_datos_sym$Hour, num_datos_sym$Victims, method = "billard")
+```
+
+## b) Realice un gráfico de tipo radar, interprete los resultados.
+
+```{r, fig.width=6, fig.height=6}
+library(ggpolypath)
+
+sym.radar.plot(num_datos_sym)
+```
+
+## c) Efectúe un Análisis en Componentes Principales, interprete las agrupaciones, las correlaciones, la sobre-posición de gráficos y la variabilidad.
+
+```{r, fig.width=6, fig.height=6}
+
+
+res <- sym.pca(num_datos_sym, "classic")
+
+#agrupaciones
+plot(res, choix = "ind")
+#correlaciones
+plot(res, choix = "var")
+
+#variabilidad
+res <- sym.pca(num_datos_sym, "centers")
+
+#agrupaciones
+plot(res, choix = "ind")
+#correlaciones
+plot(res, choix = "var")
+
+```
+
+## d) Efectúe un clustering jerárquico, interprete el resultado.
+
+```{r, fig.width=6, fig.height=6}
+DM <- sym.dist.interval(sym.data = num_datos_sym, method = "Ichino")
+model <- hclust(DM)
+plot(model, hang = -1)
+```
+
+## e) Investigue sobre el paquete `RSDA` si se puede aplicar k−means, de ser así aplíquelo.
+
+```{r, fig.width=6, fig.height=6}
+
+library(fmsb)
+
+grupos <- sym.kmeans(num_datos_sym, k = 3, iter.max = 10, nstart = 1,
+algorithm = c('Hartigan-Wong', 'Lloyd', 'Forgy', 'MacQueen'))
+
+centros<-grupos$centers
+rownames(centros)<-c("Cluster 1","Cluster 2","Cluster 3")
+centros<-as.data.frame(centros)
+maximos<-apply(centros,2,max)
+minimos<-apply(centros,2,min)
+centros<-rbind(minimos,centros)
+centros<-rbind(maximos,centros)
+
+
+color <- c("red","green","blue")
+radarchart(as.data.frame(centros),
+maxmin=TRUE,axistype=4,
+axislabcol="slategray4",
+centerzero=FALSE,seg=8,
+cglcol="gray67",
+pcol=color,plty=1,plwd=5,
+title="Comparación de clústeres")
+legenda <-legend(1.5,1,
+legend=c("Cluster 1",
+"Cluster 2",
+"Cluster 3"),
+seg.len=-1.4,title="Clústeres",
+pch=21,bty="n" ,lwd=3,
+y.intersp=1,
+horiz=FALSE,col=color)
+```
+
