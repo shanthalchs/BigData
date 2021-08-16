@@ -1,0 +1,565 @@
+---
+title: "Tarea 3 - Big Data -Sigma"
+author: "Shanthal Chavarría"
+date: "`r Sys.Date()`"
+output:
+  html_document: 
+    df_print: paged 
+    highlight: kate
+    toc: TRUE
+    toc_float: TRUE
+---
+
+
+```{r setup, echo=FALSE, cache=FALSE}
+library(knitr)
+library(rmdformats)
+
+## Global options
+options(max.print="75")
+opts_chunk$set(echo=TRUE,
+	             cache=TRUE,
+               prompt=FALSE,
+               tidy=TRUE,
+               comment=NA,
+               message=FALSE,
+               warning=FALSE)
+opts_knit$set(width=75)
+```
+
+```{r, echo=FALSE}
+library(tidyverse)
+library(glue)
+library(scales)
+library(traineR)
+
+resumen.lineas <- function(resultados, titulo) {
+  datos.grafico <- pivot_longer(
+    resultados,
+    cols = -rep,
+    names_to = 'name',
+    values_to = 'value'
+  )
+  
+  ggplot(datos.grafico, aes(y = value, x = rep, color = name)) +
+    geom_line(size = 1) +
+    geom_point() +
+    scale_y_continuous(labels = label_number()) +
+    scale_x_continuous(breaks = seq.int(1,max(datos.grafico$rep),1)) +
+    theme_minimal(base_size = 16) +
+    labs(color = '',
+         x = 'repetición',
+         title = titulo,
+         y = paste('', titulo)) +
+    theme(axis.text.y = element_text(vjust = 0),
+          legend.position = "top",
+          plot.title = element_text(hjust = 0.5))
+}
+
+precision.global <- function(x){
+  sum(diag(x)) / sum(x)
+}
+```
+
+# Ejercicio 1: __[30 puntos]__ Para los siguientes ejercicios usaremos la tabla de datos `potabilidad_V2.csv`, que contiene diferentes métricas de calidad del agua para cuerpos de agua distintos. Para esta tabla, las 9 primeras columnas corresponden a las variables predictoras y la variable `Potability` es la variable a predecir, la cual indica si el agua es segura para el consumo humano o no.
+La tabla contiene 2011 filas (individuos) y 10 columnas (variables), las cuales se explican a continuación.
+
+
+```{r}
+datos <- read.table("Datos Tarea/potabilidad_V2.csv", sep = ",", dec = ".", header = T, stringsAsFactors = T)
+
+datos <- datos[,-c(1)]
+
+
+```
+
+## 1. El objetivo de este ejercicio es calibrar el m ́etodo de ADA para esta Tabla de Datos. Aqu ́ı interesa predecir en la variable tipo. Usando los paquetes snow y traineR programe en paralelo 5 Validaciones Cruzadas con 10 grupos calibrando el modelo de acuerdo con los tres tipos de algoritmos que permite, discrete, real y gentle. Para medir la calidad de m ́etodo sume la cantidad de 1’s detectados en los diferentes grupos. Luego grafique las 5 iteraciones para los tres algoritmos en el mismo gra ́fico. ¿Se puede determinar con claridad cua ́l algoritmo es el mejor? Para generar los modelos predictivos use las siguientes instrucciones:
+
+    `modelo<-train.ada(tipo~.,data=taprendizaje,iter=80,nu=1,type="discrete")`
+    `modelo<-train.ada(tipo~.,data=taprendizaje,iter=80,nu=1,type="real")`
+    `modelo<-train.ada(tipo~.,data=taprendizaje,iter=80,nu=1,type="gentle")`
+    
+```{r}
+library(snow)
+library(traineR)
+library(caret)
+
+peones <- parallel::detectCores()
+clp <- makeCluster(peones, type = "SOCK")
+
+ejecutar.prediccion <- function(datos, formula, muestra, metodo, ...) {
+  ttesting <- datos[muestra, ]
+  ttraining <- datos[-muestra, ]
+  #modelo <- metodo(formula, data = ttraining, ...)
+  modelo <- do.call(metodo, list(formula, data = ttraining, ...))
+  prediccion <- predict(modelo, ttesting, type = "class")
+  
+  MC <- confusion.matrix(ttesting, prediccion)
+  return(MC)
+}
+
+clusterExport(clp, "datos")   
+
+ignore <- clusterEvalQ(clp, {
+      library(traineR)
+      ejecutar.prediccion <- function(datos, formula, muestra,metodo, ...) {
+        ttesting <- datos[muestra, ]
+        taprendizaje <- datos[-muestra, ]
+        modelo <- metodo(formula, data = taprendizaje, ...)
+        prediccion <- predict(modelo, ttesting, type = "class")
+        MC <- confusion.matrix(ttesting, prediccion)
+        return(MC)
+      }
+      return(NULL)
+})
+
+```
+
+```{r}
+numero.filas <- nrow(datos)
+cantidad.validacion.cruzada <- 5
+cantidad.grupos <- 10
+
+algoritmos <- c("discrete", "real", "gentle")
+
+# Exportamos paquetes a los procesadores
+ignore <- clusterEvalQ(clp, {
+  library(dplyr)
+  library(traineR)
+  return(NULL)
+})
+
+
+MCs.discrete <- list()
+MCs.real <- list()
+MCs.gentle <- list()
+
+
+for(i in 1:cantidad.validacion.cruzada) {
+  grupos <- createFolds(1:numero.filas, cantidad.grupos)
+  MC.discrete <- matrix(c(0,0,0,0),nrow=2)
+  MC.real <- matrix(c(0,0,0,0),nrow=2)
+  MC.gentle <- matrix(c(0,0,0,0),nrow=2)
+  
+  for(k in 1:cantidad.grupos) {
+    muestra <- grupos[[k]]
+            
+    ### Inserta estas 1 variable en cada peón
+    clusterExport(clp, "muestra")
+    
+    resultado <- clusterApply(clp, algoritmos, function(pkernels) {
+      MC <- ejecutar.prediccion(datos, Potability ~ .,muestra, train.ada, iter = 80 , nu = 1, type = pkernels)
+      valores <- list(Tipo = pkernels, Resultado = MC)
+      valores
+    })
+    
+    for (j in 1:length(algoritmos)) {
+      if (resultado[[j]][[1]] == "discrete") 
+         MC.discrete <- MC.discrete + resultado[[j]][[2]] 
+      else if (resultado[[j]][[1]] == "real")
+         MC.real <- MC.real + resultado[[j]][[2]] 
+      else if (resultado[[j]][[1]] == "gentle")
+         MC.gentle <- MC.gentle + resultado[[j]][[2]] 
+    }
+  }
+      
+  MCs.discrete[[i]] <- MC.discrete
+  MCs.real[[i]] <- MC.real
+  MCs.gentle[[i]] <- MC.gentle
+}
+
+
+stopCluster(clp) # No olvidar cerrar el proceso
+
+
+```
+
+```{r, fig.width=6, fig.height=3}
+resultado.si <- data.frame(
+  "rep" = 1:cantidad.validacion.cruzada,
+  "discrete"     = sapply(MCs.discrete, function(MC) MC[2,2]),
+  "real"     = sapply(MCs.real, function(MC) MC[2,2]),
+  "gentle" = sapply(MCs.gentle, function(MC) MC[2,2]))
+
+resultado.si
+
+
+resumen.lineas(resultado.si, "Cantidad de Sí")
+```
+
+## 2. Utilizando las matrices de confusión calculadas en el ejercicio anterior, en lugar de sumar la cantidad de 1’s, promedie los errores globales cometidos en los diferentes grupos (folds). Luego grafique las 5 iteraciones para los tres algoritmos en el mismo gráfico. ¿Se puede determinar con claridad cuál algoritmo es el mejor?
+
+```{r, fig.width=6, fig.height=3}
+resultado.global <- data.frame(
+  "rep" = 1:cantidad.validacion.cruzada,
+   "discrete"     =  (1- sapply(MCs.discrete, precision.global))*100,
+  "real"     = (1-sapply(MCs.real, precision.global))*100,
+  "gentle" = (1-sapply(MCs.gentle, precision.global))*100
+  )
+
+resultado.global
+
+resumen.lineas(resultado.global, "Error Global")
+```
+
+## 3. ¿Cuál algoritmo usaría con base en la información obtenida en los dos ejercicios anteriores?
+
+Usaría `discrete` debido a que fue el algoritmo con menor varianza para ambos ejercicios.
+
+
+# Ejercicio 2: __[30 puntos]__ Para esta pregunta usaremos nuevamente los datos `potabilidad_V2.csv`.
+
+## 1. El objetivo de este ejercicio es calibrar el método de `kknn` para esta Tabla de Datos. Aquí interesa predecir en la variable tipo. Usando los paquetes `snow` y `traineR` programe en paralelo 5 Validaciones Cruzadas con 10 grupos calibrando el modelo de acuerdo con todos los tipos de algoritmos que permite `train.kknn` en el parámetro `kernel`, estos algoritmos son: `rectangular`, `triangular`, `epanechnikov`, `biweight`, `triweight`, `cos`,
+`inv`, `gaussian` y `optimal`. Para medir la calidad de método sume la cantidad de 1’s detectados en los diferentes grupos. Luego grafique las 5 iteraciones para todos algoritmos en el mismo gráfico. ¿Se puede determinar con claridad cuál algoritmo es el mejor?
+
+```{r}
+library(snow)
+library(traineR)
+library(caret)
+
+peones <- parallel::detectCores()
+clp <- makeCluster(peones, type = "SOCK")
+
+
+
+ejecutar.prediccion <- function(datos, formula, muestra, metodo, ...) {
+  ttesting <- datos[muestra, ]
+  ttraining <- datos[-muestra, ]
+  #modelo <- metodo(formula, data = ttraining, ...)
+  modelo <- do.call(metodo, list(formula, data = ttraining, ...))
+  prediccion <- predict(modelo, ttesting, type = "class")
+  
+  MC <- confusion.matrix(ttesting, prediccion)
+  return(MC) #retorna la matriz de confusión
+}
+
+
+clusterExport(clp, "datos")   
+
+ignore <- clusterEvalQ(clp, {
+      library(traineR)
+      ejecutar.prediccion <- function(datos, formula, muestra,metodo, ...) {
+        ttesting <- datos[muestra, ]
+        taprendizaje <- datos[-muestra, ]
+        modelo <- metodo(formula, data = taprendizaje, ...)
+        prediccion <- predict(modelo, ttesting, type = "class")
+        MC <- confusion.matrix(ttesting, prediccion)
+        return(MC)
+      }
+      return(NULL)
+})
+
+
+
+```
+
+
+```{r}
+
+numero.filas <- nrow(datos)
+cantidad.validacion.cruzada <- 5
+cantidad.grupos <- 10
+
+algoritmos <- c("rectangular", "triangular", "epanechnikov", "biweight", "triweight", "cos", "inv", "gaussian", "optimal")
+
+# Exportamos paquetes a los procesadores
+ignore <- clusterEvalQ(clp, {
+  library(dplyr)
+  library(traineR)
+})
+
+
+MCs.rectangular <- list()
+MCs.triangular <- list()
+MCs.epanechnikov <- list()
+MCs.biweight <- list()
+MCs.triweight <- list()
+MCs.cos <- list()
+MCs.inv <- list()
+MCs.gaussian <- list()
+MCs.optimal <- list()
+
+
+
+for(i in 1:cantidad.validacion.cruzada) {
+  grupos <- createFolds(1:numero.filas, cantidad.grupos)
+  MC.rectangular <- matrix(c(0,0,0,0),nrow=2)
+  MC.triangular <- matrix(c(0,0,0,0),nrow=2)
+  MC.epanechnikov <- matrix(c(0,0,0,0),nrow=2)
+  MC.biweight <- matrix(c(0,0,0,0),nrow=2)
+  MC.triweight <- matrix(c(0,0,0,0),nrow=2)
+  MC.cos <- matrix(c(0,0,0,0),nrow=2)
+  MC.inv <- matrix(c(0,0,0,0),nrow=2)
+  MC.gaussian <- matrix(c(0,0,0,0),nrow=2)
+  MC.optimal <- matrix(c(0,0,0,0),nrow=2)
+  
+  for(k in 1:cantidad.grupos) {
+    muestra <- grupos[[k]]
+            
+    ### Inserta estas 1 variable en cada peón
+    clusterExport(clp, "muestra")
+    
+    resultado <- clusterApply(clp, algoritmos, function(pkernels) {
+      MC <- ejecutar.prediccion(datos, Potability ~ .,muestra, train.knn, kernel = pkernels)
+      valores <- list(Tipo = pkernels, Resultado = MC)
+      valores
+    })
+    
+    
+    
+    for (j in 1:length(algoritmos)) {
+      if (resultado[[j]][[1]] == "rectangular") 
+         MC.rectangular <- MC.rectangular + resultado[[j]][[2]] 
+      else if (resultado[[j]][[1]] == "triangular")
+         MC.triangular <- MC.triangular + resultado[[j]][[2]] 
+      else if (resultado[[j]][[1]] == "epanechnikov")
+         MC.epanechnikov <- MC.epanechnikov + resultado[[j]][[2]] 
+      else if (resultado[[j]][[1]] == "biweight")
+         MC.biweight <- MC.biweight + resultado[[j]][[2]] 
+      else if (resultado[[j]][[1]] == "triweight")
+         MC.triweight <- MC.triweight + resultado[[j]][[2]] 
+      else if (resultado[[j]][[1]] == "cos")
+         MC.cos <- MC.cos + resultado[[j]][[2]] 
+      else if (resultado[[j]][[1]] == "inv")
+         MC.inv <- MC.inv + resultado[[j]][[2]]
+      else if (resultado[[j]][[1]] == "gaussian")
+         MC.gaussian <- MC.gaussian + resultado[[j]][[2]] 
+      else if (resultado[[j]][[1]] == "optimal")
+         MC.optimal <- MC.optimal+ resultado[[j]][[2]] 
+      
+    }
+  }
+  
+  
+      
+  MCs.rectangular[[i]] <- MC.rectangular
+  MCs.triangular[[i]] <- MC.triangular
+  MCs.epanechnikov[[i]] <- MC.epanechnikov
+  MCs.biweight[[i]] <- MC.biweight
+  MCs.triweight[[i]] <- MC.triweight
+  MCs.cos[[i]] <- MC.cos
+  MCs.inv[[i]] <- MC.inv
+  MCs.gaussian[[i]] <- MC.gaussian
+  MCs.optimal[[i]] <- MC.optimal
+}
+
+
+stopCluster(clp)# No olvidar cerrar el proceso
+
+```
+
+```{r, fig.width=6, fig.height=3}
+resultado.si <- data.frame(
+  "rep" = 1:cantidad.validacion.cruzada,
+  "rectangular"     = sapply(MCs.rectangular, function(MC) MC[2,2]),
+  "triangular"     = sapply(MCs.triangular, function(MC) MC[2,2]),
+  "epanechnikov" = sapply(MCs.epanechnikov, function(MC) MC[2,2]),
+  "biweight"     = sapply(MCs.biweight, function(MC) MC[2,2]),
+  "triweight"     = sapply(MCs.triweight, function(MC) MC[2,2]),
+  "cos" = sapply(MCs.cos, function(MC) MC[2,2]),
+  "inv"     = sapply(MCs.inv, function(MC) MC[2,2]),
+  "gaussian"     = sapply(MCs.gaussian, function(MC) MC[2,2]),
+  "optimal" = sapply(MCs.optimal, function(MC) MC[2,2]))
+
+
+resumen.lineas(resultado.si, "Cantidad de 1s")
+```
+
+## 2. Utilizando las matrices de confusión calculadas en el ejercicio anterior, en lugar de sumar la cantidad de 1’s, promedie los errores globales cometidos en los diferentes grupos (folds). Luego grafique las 5 iteraciones para todos los algoritmos en el mismo gráfico. ¿Se puede determinar con claridad cuál algoritmo es el mejor?
+
+```{r, fig.width=6, fig.height=3}
+resultado.global <- data.frame(
+  "rep" = 1:cantidad.validacion.cruzada,
+   "rectangular"     = (1-sapply(MCs.rectangular, precision.global))*100,
+  "triangular"     = (1-sapply(MCs.triangular, precision.global))*100,
+  "epanechnikov" =(1-sapply(MCs.epanechnikov, precision.global))*100,
+  "biweight"     = (1-sapply(MCs.biweight,precision.global))*100,
+  "triweight"     = (1-sapply(MCs.triweight, precision.global))*100,
+  "cos" = (1-sapply(MCs.cos, precision.global))*100,
+  "inv"     = (1-sapply(MCs.inv, precision.global))*100,
+  "gaussian"     = (1-sapply(MCs.gaussian, precision.global))*100,
+  "optimal" = (1-sapply(MCs.optimal, precision.global))*100)
+
+
+resumen.lineas(resultado.global, "Error Global")
+```
+
+## 3. ¿Cuál algoritmo usaría con base en la información obtenida en los dos ejercicios anteriores?
+
+Usaría `triangular` es el modelo más estable y sus resultados son buenos.
+
+# Ejercicio 3: __[40 puntos]__ Esta pregunta también utilizan nuevamente los datos `potabilidad_V2.csv`.
+
+## 1. El objetivo de este ejercicio es comparar todos los métodos predictivos vistos en el curso con esta tabla de datos. Aquí interesa predecir en la variable `tipo`, Usando los paquetes `snow` y `traineR` programe en paralelo 5 Validaciones Cruzadas con 10 grupos para los métodos `SVM`, `KNN`, `Arboles`, `Bosques`, `Potenciación`, `eXtreme Gradient Boosting`, `Bayes`, `Regresión Logística` y `Redes Neuronales`, para `KNN` y `Potenciación` use los parámetros obtenidos en las calibraciones realizadas en los ejercicios anteriores. Luego grafique las 5 iteraciones para todos los métodos en el mismo gráfico. ¿Se puede determinar con claridad cuál métodos es el mejor?
+
+```{r}
+library(snow)
+library(traineR)
+
+peones <- parallel::detectCores()
+clp <- makeCluster(peones, type = "SOCK")
+
+ejecutar.prediccion <- function(datos, formula, muestra, metodo, ...) {
+  ttesting <- datos[muestra, ]
+  ttraining <- datos[-muestra, ]
+  
+  modelo <- do.call(metodo, list(formula, data = ttraining, ...))
+  prediccion <- predict(modelo, ttesting, type = "class")
+  MC <- confusion.matrix(ttesting, prediccion)
+  return(MC)
+}
+
+ejecutar.prediccion.particular <- function(datos, formula, muestra, metodo) {
+  if(metodo == "train.svm"){return(ejecutar.prediccion(datos, formula, muestra, metodo, kernel = "radial", probability = FALSE))}
+  if(metodo == "train.knn"){return(ejecutar.prediccion(datos, formula, muestra, metodo, kmax = 37, kernel = "rectangular"))}
+  if(metodo == "train.bayes"){return(ejecutar.prediccion(datos, formula, muestra, metodo))}
+  if(metodo == "train.rpart"){return(ejecutar.prediccion(datos, formula, muestra, metodo))}
+  if(metodo == "train.randomForest"){return(ejecutar.prediccion(datos, formula, muestra, metodo, importance = TRUE))}
+  if(metodo == "train.ada"){return(ejecutar.prediccion(datos, formula, muestra, metodo, iter = 20, nu = 1, type = "discrete"))}
+  if(metodo == "train.nnet"){return(ejecutar.prediccion(datos, formula, muestra, metodo, size = 5, rang = 0.1, decay = 5e-04, maxit = 100, trace = FALSE))}
+  if(metodo == "train.xgboost"){return(ejecutar.prediccion(datos, formula, muestra, metodo, nrounds = 79, print_every_n = 10, maximize = F , eval_metric = "error"))}
+  if(metodo == "train.glm"){return(ejecutar.prediccion(datos, formula, muestra, metodo))}
+  if(metodo == "train.neuralnet"){return(ejecutar.prediccion(datos, formula, muestra, metodo,hidden = c(8,6,4), linear.output = FALSE, threshold = 0.5, stepmax = 1e+06))}
+}
+```
+
+```{r}
+numero.filas <- nrow(datos)
+cantidad.validacion.cruzada <- 5
+cantidad.grupos <- 10
+metodos <- c("train.svm", "train.knn", "train.bayes", "train.rpart",
+             "train.randomForest", "train.ada", "train.nnet",
+             "train.xgboost", "train.neuralnet", "train.glm")
+
+# Exportamos paquetes a los procesadores
+ignore <- clusterEvalQ(clp, {
+  library(dplyr)
+  library(traineR)
+  return(NULL)
+})
+
+
+clusterExport(clp, list("datos", "ejecutar.prediccion", "ejecutar.prediccion.particular"))
+
+
+MCs.svm <- list()
+MCs.knn <- list()
+MCs.bayes <- list()
+MCs.arbol <- list()
+MCs.bosque <- list()
+MCs.potenciacion <- list()
+MCs.red <- list()
+MCs.xgboost <- list()
+MCs.red.neu <- list()
+MCs.glm <- list()
+
+# Validación cruzada 5 veces
+for(i in 1:cantidad.validacion.cruzada) {
+  grupos <- createFolds(1:numero.filas, cantidad.grupos)  # Crea los 10 grupos
+  MC.svm <- matrix(c(0,0,0,0), nrow=2)
+  MC.knn <- matrix(c(0,0,0,0), nrow=2)
+  MC.bayes <- matrix(c(0,0,0,0), nrow=2)
+  MC.arbol <- matrix(c(0,0,0,0), nrow=2)
+  MC.bosque <- matrix(c(0,0,0,0), nrow=2)
+  MC.potenciacion <- matrix(c(0,0,0,0), nrow=2)
+  MC.red <- matrix(c(0,0,0,0), nrow=2)
+  MC.xgboost  <- matrix(c(0,0,0,0), nrow=2)
+  MC.red.neu <- matrix(c(0,0,0,0), nrow=2)
+  MC.glm <- matrix(c(0,0,0,0), nrow=2) 
+  
+  # Este ciclo es el que hace validación cruzada con 10 grupos
+  for(k in 1:cantidad.grupos) {
+    muestra <- grupos[[k]]  # Por ser una lista requiere de doble paréntesis
+    # Exportamos la muestra a los procesadores
+    clusterExport(clp, "muestra")
+    
+    resultado <- clusterApply(clp, metodos, function(metodo) {
+      MC <- ejecutar.prediccion.particular(datos = datos,
+                                           formula = Potability~.,
+                                           muestra = muestra,
+                                           metodo = metodo)
+      valores <- list(Tipo = metodo, MC = MC)
+      return(valores)
+    })
+    
+    for (j in seq_along(metodos)) {
+      if (resultado[[j]][[1]] == "train.svm")
+        MC.svm <- MC.svm + resultado[[j]][[2]]
+      else if (resultado[[j]][[1]] == "train.knn")
+        MC.knn <- MC.knn + resultado[[j]][[2]]
+      else if (resultado[[j]][[1]] == "train.bayes")
+        MC.bayes <- MC.bayes + resultado[[j]][[2]]
+      else if (resultado[[j]][[1]] == "train.rpart")
+        MC.arbol <- MC.arbol + resultado[[j]][[2]]
+      else if (resultado[[j]][[1]] == "train.randomForest")
+        MC.bosque <- MC.bosque + resultado[[j]][[2]]
+      else if (resultado[[j]][[1]] == "train.ada")
+        MC.potenciacion <- MC.potenciacion + resultado[[j]][[2]]
+      else if (resultado[[j]][[1]] == "train.nnet")
+        MC.red <- MC.red + resultado[[j]][[2]]
+      else if (resultado[[j]][[1]] == "train.xgboost")
+        MC.xgboost <- MC.xgboost + resultado[[j]][[2]]
+      else if (resultado[[j]][[1]] == "train.neuralnet")
+        MC.red.neu <- MC.red.neu + resultado[[j]][[2]]
+      else if (resultado[[j]][[1]] == "train.glm")
+        MC.glm <- MC.glm + resultado[[j]][[2]]
+    }
+    
+  }
+  MCs.svm[[i]] <- MC.svm
+  MCs.knn[[i]] <- MC.knn
+  MCs.bayes[[i]] <- MC.bayes
+  MCs.arbol[[i]] <- MC.arbol
+  MCs.bosque[[i]] <- MC.bosque
+  MCs.potenciacion[[i]] <- MC.potenciacion
+  MCs.red[[i]] <- MC.red
+  MCs.xgboost[[i]] <- MC.xgboost
+  MCs.red.neu[[i]] <- MC.red.neu
+  MCs.glm[[i]] <- MC.glm
+}
+stopCluster(clp)
+```
+
+```{r, fig.width=6, fig.height=3}
+resultado.si <- data.frame(
+  "rep" = 1:cantidad.validacion.cruzada,
+  "svm" = sapply(MCs.svm, function(MC) MC[2,2]),
+  "k_vecinos" = sapply(MCs.knn, function(MC) MC[2,2]),
+  "bayes" = sapply(MCs.bayes, function(MC) MC[2,2]),
+  "arboles" = sapply(MCs.arbol, function(MC) MC[2,2]),
+  "bosques" = sapply(MCs.bosque, function(MC) MC[2,2]),
+  "potenciacion" = sapply(MCs.potenciacion,function(MC) MC[2,2]),
+  "redes_nnet" = sapply(MCs.red, function(MC) MC[2,2]),
+  "xgboost" = sapply(MCs.xgboost, function(MC) MC[2,2]),
+  "redes_neuralnet" = sapply(MCs.red.neu, function(MC) MC[2,2]),
+  "regresion_logistica" = sapply(MCs.glm, function(MC) MC[2,2])
+  )
+
+resumen.lineas(resultado.si, "Cantidad de 1s")
+```
+
+## 2. Utilizando las matrices de confusión calculadas en el ejercicio anterior, en lugar de sumar la cantidad de 1’s, promedie los errores globales cometidos en los diferentes grupos (folds). Luego grafique las 5 iteraciones para todos los métodos vistos en el curso en el mismo gráfico. ¿Se puede determinar con claridad cuál algoritmo es el mejor?
+
+
+```{r, fig.width=12,fig.height=6}
+resultado.global <- data.frame(
+  "rep" = 1:cantidad.validacion.cruzada,
+  "svm" = (1 - sapply(MCs.svm, precision.global))*100,
+  "k_vecinos" = (1 - sapply(MCs.knn, precision.global))*100,
+  "bayes" = (1 - sapply(MCs.bayes, precision.global))*100,
+  "arboles" = (1 - sapply(MCs.arbol, precision.global))*100,
+  "bosques" = (1 - sapply(MCs.bosque, precision.global))*100,
+  "potenciacion" = (1- sapply(MCs.potenciacion,precision.global))*100,
+  "redes_nnet" = (1 - sapply(MCs.red, precision.global))*100,
+  "xgboost" = (1 - sapply(MCs.xgboost, precision.global))*100,
+  "redes_neuralnet" = (1- sapply(MCs.red.neu, precision.global))*100,
+  "regresion_logistica" = (1-  sapply(MCs.glm, precision.global))*100
+  )
+
+resumen.lineas(resultado.global, "Error Global")
+``````
+
+## 3. ¿Cuál método usaría con base en la información obtenida en los dos ejercicios anteriores?
+
+Usaría `potenciación`
+
